@@ -1,0 +1,1 @@
+export default function HowItWorks(){return(<div className="mt-10 max-w-md text-white/80"><h3 className="text-lg font-semibold">How RiskChain AI Works</h3><ul className="mt-3 space-y-1 text-sm"><li>✔ Smart contract analysis</li><li>✔ Honeypot detection</li><li>✔ Owner & liquidity checks</li><li>✔ Fake airdrop analysis</li></ul></div>)}
