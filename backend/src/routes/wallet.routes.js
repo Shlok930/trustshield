@@ -1,6 +1,6 @@
 import express from "express"
 import { ethers } from "ethers"
-import { provider, erc20ABI } from "../provider.js"
+import { erc20ABI, getProvider } from "../provider.js"
 
 const router = express.Router()
 
@@ -14,7 +14,7 @@ const trackingTokens = [
   { symbol: "UNI", address: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984", price: 13.5 }
 ]
 
-const formatTokenHolding = async (walletAddress, token) => {
+const formatTokenHolding = async (walletAddress, token, provider) => {
   try {
     const contract = new ethers.Contract(token.address, erc20ABI, provider)
     const [symbol, decimals, rawBalance] = await Promise.all([
@@ -73,14 +73,15 @@ const buildConnectionGraph = (transactionCount) => ({
   ]
 })
 
-router.get("/wallet", async (req, res) => {
-  const address = String(req.query.address || "").trim()
+const resolveWalletRequest = (req) => {
+  const address = String(req.body?.address || req.query?.address || "").trim()
+  const network = String(req.body?.network || req.query?.network || "ethereum").trim()
+  return { address, network }
+}
 
-  if (!address || !ethers.isAddress(address)) {
-    return res.status(400).json({ error: "Invalid wallet address" })
-  }
-
+const buildWalletResponse = async (address, network) => {
   try {
+    const provider = getProvider(network)
     const checksumAddress = ethers.getAddress(address)
     const [balance, txCount, code] = await Promise.all([
       provider.getBalance(checksumAddress),
@@ -118,7 +119,7 @@ router.get("/wallet", async (req, res) => {
 
     const tokenHoldings = (
       await Promise.all(
-        trackingTokens.map(token => formatTokenHolding(checksumAddress, token))
+        trackingTokens.map((token) => formatTokenHolding(checksumAddress, token, provider))
       )
     ).filter(Boolean)
 
@@ -165,10 +166,10 @@ router.get("/wallet", async (req, res) => {
     const scamProbability = clamp(Math.floor(riskScore * 0.85), 5, 96)
     const threatLevel = riskScore >= 65 ? "HIGH" : riskScore >= 40 ? "ELEVATED" : "LOW"
 
-    res.json({
+    const result = {
       address: checksumAddress,
       ensName: ensName || null,
-      chain: "Ethereum",
+      chain: (network ? network[0].toUpperCase() + network.slice(1) : "Ethereum"),
       isContract,
       walletBalance: Number(ethers.formatEther(balance)),
       transactionCount,
@@ -190,6 +191,7 @@ router.get("/wallet", async (req, res) => {
       ]
         .filter(Boolean)
         .join(" • "),
+      network,
       transactionAnalytics: {
         totalTransactions: transactionCount,
         incomingRatio: Number(Math.min(0.86, 0.26 + transactionCount * 0.002).toFixed(2)),
@@ -332,10 +334,44 @@ router.get("/wallet", async (req, res) => {
           "Behavioral clustering suggests repeated access from related wallet groups."
         ]
       }
-    })
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ error: "Wallet lookup failed" })
+    }
+
+    return result
+  } catch (err) {
+    console.error(err)
+    throw new Error("Wallet analysis failed")
+  }
+}
+
+router.get("/wallet", async (req, res) => {
+  try {
+    const { address, network } = resolveWalletRequest(req)
+
+    if (!address || !ethers.isAddress(address)) {
+      return res.status(400).json({ error: "Invalid wallet address" })
+    }
+
+    const result = await buildWalletResponse(address, network)
+    return res.json(result)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: "Wallet analysis failed" })
+  }
+})
+
+router.post("/wallet", async (req, res) => {
+  try {
+    const { address, network } = resolveWalletRequest(req)
+
+    if (!address || !ethers.isAddress(address)) {
+      return res.status(400).json({ error: "Invalid wallet address" })
+    }
+
+    const result = await buildWalletResponse(address, network)
+    return res.json(result)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: "Wallet analysis failed" })
   }
 })
 

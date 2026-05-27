@@ -1,5 +1,4 @@
 import express from "express"
-import { ethers } from "ethers"
 
 import { contractIntegrity } from "../analyzers/contractIntegrity.js"
 import { sellRestrictions } from "../analyzers/sellRestrictions.js"
@@ -13,15 +12,33 @@ import { scamPatternDetector } from "../detectors/scamPatternDetector.js"
 import { airdropDetector } from "../detectors/airdropDetector.js"
 
 import { buildTokenReport } from "../report/buildTokenReport.js"
+import { validateTokenAddress } from "../validators/tokenValidator.js"
 
 const router = express.Router()
+
+router.post("/validate-token", async (req, res) => {
+  try {
+    const { tokenAddress } = req.body
+    const validation = await validateTokenAddress(tokenAddress)
+
+    if (!validation.valid) {
+      return res.status(400).json(validation)
+    }
+
+    return res.json(validation)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: "Token validation failed" })
+  }
+})
 
 router.post("/scan", async (req, res) => {
   try {
     const { tokenAddress } = req.body
+    const validation = await validateTokenAddress(tokenAddress)
 
-    if (!tokenAddress || !ethers.isAddress(tokenAddress)) {
-      return res.status(400).json({ error: "Invalid token address" })
+    if (!validation.valid) {
+      return res.status(400).json(validation)
     }
 
     const integrity = await contractIntegrity(tokenAddress, provider)
@@ -35,8 +52,11 @@ router.post("/scan", async (req, res) => {
 
     const report = buildTokenReport({
       tokenInfo: {
-        address: tokenAddress,
-        chain: "Ethereum"
+        address: validation.address,
+        name: validation.name,
+        symbol: validation.symbol,
+        chain: validation.chain,
+        verified: true
       },
       honeypotAnalysis: {
         canBuy: true,
