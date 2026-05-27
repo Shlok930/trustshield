@@ -1,0 +1,9 @@
+{
+  "name": "riskchain-fullstack",
+  "private": true,
+  "scripts": {
+    "dev": "npx concurrently -n backend,frontend \"npm --prefix backend run dev\" \"npm --prefix frontend run dev -- --host 0.0.0.0\"",
+    "start": "npm --prefix backend run dev",
+    "frontend": "npm --prefix frontend run dev -- --host 0.0.0.0"
+  }
+}

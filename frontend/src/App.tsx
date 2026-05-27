@@ -29,7 +29,7 @@ export default function App() {
     setScanMessage("Initializing advanced surveillance scan...")
 
     try {
-      const res = await axios.get("http://localhost:5000/api/wallet", {
+      const res = await axios.get("/api/wallet", {
         params: { address: walletAddress },
         headers: { "Cache-Control": "no-cache" }
       })

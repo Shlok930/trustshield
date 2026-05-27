@@ -1,15 +1,15 @@
 import { ethers } from "ethers"
 
 export const NETWORK_RPC_URLS = {
-  ethereum: "https://1rpc.io/eth",
-  eth: "https://1rpc.io/eth",
+  ethereum: "https://ethereum-rpc.publicnode.com",
+  eth: "https://ethereum-rpc.publicnode.com",
   bsc: "https://bsc-dataseed.binance.org",
   binance: "https://bsc-dataseed.binance.org",
   polygon: "https://polygon-rpc.com",
   matic: "https://polygon-rpc.com",
   arbitrum: "https://arb1.arbitrum.io/rpc",
-  avalanche: "https://api.avax.network/ext/bc/C/rpc",
-  avax: "https://api.avax.network/ext/bc/C/rpc"
+  avalanche: "https://avalanche.public-rpc.com",
+  avax: "https://avalanche.public-rpc.com"
 }
 
 export const DEFAULT_NETWORK = "ethereum"

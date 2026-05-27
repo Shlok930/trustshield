@@ -5,6 +5,8 @@ import { erc20ABI, getProvider } from "../provider.js"
 const router = express.Router()
 
 const ETH_USD_PRICE = 3200
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "IWQQM4TAW2CFJZW1J4NND2HZTZWPXZ1H4F"
+const ETHERSCAN_BASE_URL = "https://api.etherscan.io/v2/api"
 const trackingTokens = [
   { symbol: "WETH", address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", price: ETH_USD_PRICE },
   { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", price: 1 },
@@ -79,17 +81,114 @@ const resolveWalletRequest = (req) => {
   return { address, network }
 }
 
+const toBigInt = (value) => {
+  if (typeof value === "bigint") return value
+  if (typeof value === "number") return BigInt(Math.trunc(value))
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed ? BigInt(trimmed.startsWith("0x") ? trimmed : trimmed) : 0n
+  }
+  return 0n
+}
+
+const fetchEtherscanData = async (address) => {
+  const params = new URLSearchParams({
+    chainid: "1",
+    apikey: ETHERSCAN_API_KEY,
+    address,
+    page: "1",
+    offset: "25",
+    sort: "desc"
+  })
+
+  const endpoints = [
+    `${ETHERSCAN_BASE_URL}?module=account&action=balance&tag=latest&${params.toString()}`,
+    `${ETHERSCAN_BASE_URL}?module=account&action=txlist&${params.toString()}`,
+    `${ETHERSCAN_BASE_URL}?module=account&action=tokentx&${params.toString()}`
+  ]
+
+  const [balanceRes, txListRes, tokenTxRes] = await Promise.all(
+    endpoints.map(async (url) => {
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`Etherscan request failed: ${response.status}`)
+      }
+      return response.json()
+    })
+  )
+
+  return {
+    balance: balanceRes,
+    txList: txListRes,
+    tokenTx: tokenTxRes
+  }
+}
+
+const deriveWalletMetrics = (txList = [], checksumAddress) => {
+  const incoming = txList.filter((tx) => tx.to?.toLowerCase() === checksumAddress.toLowerCase())
+  const outgoing = txList.filter((tx) => tx.from?.toLowerCase() === checksumAddress.toLowerCase())
+  const largestTransaction = txList.reduce((largest, tx) => {
+    const value = Number(ethers.formatEther(toBigInt(tx.value || 0)))
+    return value > largest ? value : largest
+  }, 0)
+  const gasSpending = txList.reduce((sum, tx) => {
+    const gasUsed = toBigInt(tx.gasUsed || 0)
+    const gasPrice = toBigInt(tx.gasPrice || 0)
+    return sum + Number(ethers.formatEther(gasUsed * gasPrice))
+  }, 0)
+  const failedTransactions = txList.filter((tx) => String(tx.isError) !== "0").length
+
+  return {
+    transactionCount: txList.length,
+    incomingTransactions: incoming.length,
+    outgoingTransactions: outgoing.length,
+    largestTransaction,
+    gasSpending,
+    failedTransactions,
+    firstSeen: txList.length
+      ? new Date(Number(txList[txList.length - 1].timeStamp) * 1000).toLocaleDateString("en-US")
+      : null,
+    lastSeen: txList.length
+      ? new Date(Number(txList[0].timeStamp) * 1000).toLocaleDateString("en-US")
+      : null
+  }
+}
+
 const buildWalletResponse = async (address, network) => {
   try {
     const provider = getProvider(network)
     const checksumAddress = ethers.getAddress(address)
-    const [balance, txCount, code] = await Promise.all([
-      provider.getBalance(checksumAddress),
-      provider.getTransactionCount(checksumAddress),
-      provider.getCode(checksumAddress)
-    ])
 
-    const transactionCount = Number(txCount)
+    let balance = 0n
+    let txCount = 0n
+    let code = "0x"
+
+    try {
+      ;[balance, txCount, code] = await Promise.all([
+        provider.getBalance(checksumAddress),
+        provider.getTransactionCount(checksumAddress),
+        provider.getCode(checksumAddress)
+      ])
+    } catch (rpcError) {
+      console.warn("RPC fallback failed, continuing with Etherscan data:", rpcError.message)
+    }
+
+    let etherscanData = null
+    try {
+      etherscanData = await fetchEtherscanData(checksumAddress)
+    } catch (error) {
+      console.warn("Etherscan lookup unavailable, using provider fallback:", error.message)
+    }
+
+    const etherscanMetrics = etherscanData
+      ? deriveWalletMetrics(Array.isArray(etherscanData.txList?.result) ? etherscanData.txList.result : [], checksumAddress)
+      : null
+
+    const transactionCount = etherscanMetrics?.transactionCount || Number(txCount)
+    const rawBalance = etherscanData?.balance?.result && etherscanData.balance.result !== "0"
+      ? BigInt(etherscanData.balance.result)
+      : balance
+    const walletBalance = Number(ethers.formatEther(rawBalance))
     let ensName = null
     try {
       ensName = await provider.lookupAddress(checksumAddress)
@@ -123,13 +222,15 @@ const buildWalletResponse = async (address, network) => {
       )
     ).filter(Boolean)
 
-    const ethValueUSD = Number((Number(ethers.formatEther(balance)) * ETH_USD_PRICE).toFixed(2))
+    const ethValueUSD = Number((walletBalance * ETH_USD_PRICE).toFixed(2))
     const portfolioValueUSD = Number(
       (ethValueUSD + tokenHoldings.reduce((sum, token) => sum + token.valueUSD, 0)).toFixed(2)
     )
 
     const walletAge = transactionCount === 0
       ? "Newly created"
+      : etherscanMetrics?.firstSeen
+      ? `Active since ${etherscanMetrics.firstSeen}`
       : transactionCount < 20
       ? "0.4 yrs"
       : transactionCount < 80
@@ -138,13 +239,15 @@ const buildWalletResponse = async (address, network) => {
       ? "1.8 yrs"
       : "3+ yrs"
 
-    const baseRisk = 18
+    const baseRisk = 14
     const totalRisk = clamp(
       baseRisk +
-        (isContract ? 12 : 0) +
-        (transactionCount < 5 ? 12 : 0) +
-        (transactionCount > 200 ? 10 : 0) +
-        (portfolioValueUSD > 50000 ? 14 : 0) +
+        (isContract ? 10 : 0) +
+        (transactionCount < 5 ? 10 : 0) +
+        (transactionCount > 180 ? 8 : 0) +
+        (portfolioValueUSD > 50000 ? 10 : 0) +
+        (etherscanMetrics?.failedTransactions ? 6 : 0) +
+        (etherscanMetrics?.largestTransaction > 25 ? 8 : 0) +
         (contractInsights?.isProxy ? 8 : 0) +
         (contractInsights?.hasPrivilegedOwner ? 10 : 0) +
         (tokenHoldings.length > 3 ? 6 : 0),
@@ -171,7 +274,7 @@ const buildWalletResponse = async (address, network) => {
       ensName: ensName || null,
       chain: (network ? network[0].toUpperCase() + network.slice(1) : "Ethereum"),
       isContract,
-      walletBalance: Number(ethers.formatEther(balance)),
+      walletBalance,
       transactionCount,
       tokenHoldings,
       contractInsights,
@@ -183,8 +286,9 @@ const buildWalletResponse = async (address, network) => {
       securityStatus,
       summary: [
         isContract ? "Smart contract wallet" : "Externally owned wallet",
-        `Balance: ${ethers.formatEther(balance)} ETH`,
-        `Activity: ${transactionCount} interactions`,
+        `Balance: ${walletBalance.toFixed(4)} ETH`,
+        `Activity: ${transactionCount} on-chain interactions`,
+        etherscanMetrics?.lastSeen ? `Last seen: ${etherscanMetrics.lastSeen}` : null,
         ensName ? `ENS: ${ensName}` : null,
         contractInsights?.isProxy ? "Proxy / upgradable" : null,
         contractInsights?.hasPrivilegedOwner ? "Privileged owner logic" : null
@@ -194,17 +298,13 @@ const buildWalletResponse = async (address, network) => {
       network,
       transactionAnalytics: {
         totalTransactions: transactionCount,
-        incomingRatio: Number(Math.min(0.86, 0.26 + transactionCount * 0.002).toFixed(2)),
-        outgoingRatio: Number(Math.max(0, 1 - Math.min(0.86, 0.26 + transactionCount * 0.002)).toFixed(2)),
+        incomingRatio: Number((etherscanMetrics ? etherscanMetrics.incomingTransactions / Math.max(1, transactionCount) : 0.26).toFixed(2)),
+        outgoingRatio: Number((etherscanMetrics ? etherscanMetrics.outgoingTransactions / Math.max(1, transactionCount) : 0.74).toFixed(2)),
         dailyFrequency: Number((transactionCount > 0 ? Math.min(14, transactionCount / 18) : 0).toFixed(1)),
-        averageTxAmount: Number(
-          (transactionCount > 0 ? Math.max(0.001, Number(ethers.formatEther(balance)) / transactionCount) : 0).toFixed(4)
-        ),
-        largestTransaction: Number(
-          Math.max(0.001, Number(ethers.formatEther(balance)) * 0.42).toFixed(4)
-        ),
-        gasSpending: Number(Math.max(0.0001, transactionCount * 0.00012).toFixed(4)),
-        failedTransactions: Math.min(transactionCount, Math.floor(transactionCount * 0.07)),
+        averageTxAmount: Number((transactionCount > 0 ? walletBalance / Math.max(1, transactionCount) : 0).toFixed(4)),
+        largestTransaction: Number(Math.max(0.0001, etherscanMetrics?.largestTransaction || 0).toFixed(4)),
+        gasSpending: Number(Math.max(0.0001, etherscanMetrics?.gasSpending || 0).toFixed(4)),
+        failedTransactions: etherscanMetrics?.failedTransactions || 0,
         heatmap: buildHeatmap(transactionCount),
         recentTimeline: buildRecentTimeline()
       },
