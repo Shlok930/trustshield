@@ -13,7 +13,10 @@ import ApprovalAnalysis from "./components/ApprovalAnalysis"
 import ContractInteractions from "./components/ContractInteractions"
 import ScamDetection from "./components/ScamDetection"
 import SecurityInsights from "./components/SecurityInsights"
+import EtherscanDataPanel from "./components/EtherscanDataPanel"
 import Footer from "./components/Footer"
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "")
 
 export default function App() {
   const [walletAddress, setWalletAddress] = useState("")
@@ -29,14 +32,19 @@ export default function App() {
     setScanMessage("Initializing advanced surveillance scan...")
 
     try {
-      const res = await axios.get("/api/wallet", {
-        params: { address: walletAddress },
+      const res = await axios.get(`${API_BASE_URL}/wallet`, {
+        params: { address: walletAddress, _: Date.now() },
         headers: { "Cache-Control": "no-cache" }
       })
+      console.log("Wallet API response", res.data)
       setWalletResult(res.data)
       setScanMessage("Wallet intelligence report generated successfully.")
-    } catch (err) {
-      setWalletResult({ error: true, message: "Unable to resolve wallet data. Check the address and backend connection." })
+    } catch (err: any) {
+      const backendMessage = err?.response?.data?.error
+      setWalletResult({
+        error: true,
+        message: backendMessage || "Unable to resolve wallet data. Check the address and backend connection."
+      })
       setScanMessage("Scan failed. Please verify the wallet address and try again.")
     }
 
@@ -124,7 +132,7 @@ export default function App() {
                   disabled={loading || !walletAddress}
                   className="w-full rounded-3xl bg-red-600 px-6 py-4 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(239,68,68,0.24)] transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {loading ? "Running scan…" : "Start RiskChain AI Scan"}
+                  {loading ? "Running scan..." : "Start RiskChain AI Scan"}
                 </button>
                 <div className="rounded-3xl border border-white/10 bg-slate-950/60 px-5 py-4 text-sm text-slate-300">
                   {scanMessage}
@@ -161,6 +169,7 @@ export default function App() {
             ) : (
               <>
                 <WalletOverview wallet={walletResult} />
+                <EtherscanDataPanel etherscan={walletResult.etherscan} />
                 <AiRiskEngine
                   engine={walletResult.aiRiskEngine}
                   identity={walletResult.identityProfile}

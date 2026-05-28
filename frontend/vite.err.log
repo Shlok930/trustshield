@@ -1,0 +1,107 @@
+[2m9:27:01 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/wallet?address=0xdadB0d80178819F2319190D340ce9A924f783711[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m9:27:12 am[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/wallet?address=0xdadB0d80178819F2319190D340ce9A924f783711[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m9:44:13 am[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 2 errors:
+C:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx:82:45: ERROR: The character ">" is not valid inside a JSX element
+C:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx:109:51: ERROR: The character ">" is not valid inside a JSX element
+[2m9:44:13 am[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 2 errors:
+C:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx:82:45: ERROR: The character ">" is not valid inside a JSX element
+C:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx:109:51: ERROR: The character ">" is not valid inside a JSX element[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx[39m:63:43
+[33m  
+  [33mThe character ">" is not valid inside a JSX element[33m
+  80 |                    <p className="mt-2 break-all text-xs text-slate-500">{tx.hash}</p>
+  81 |                    <p className="mt-2 text-xs text-slate-400">
+  82 |                      {shortAddress(tx.from)} -> {shortAddress(tx.to)}
+     |                                               ^
+  83 |                    </p>
+  84 |                  </div>
+  
+  [33mThe character ">" is not valid inside a JSX element[33m
+  107|                    <p className="mt-2 break-all text-xs text-slate-500">{transfer.hash}</p>
+  108|                    <p className="mt-2 text-xs text-slate-400">
+  109|                      {shortAddress(transfer.from)} -> {shortAddress(transfer.to)}
+     |                                                     ^
+  110|                    </p>
+  111|                  </div>
+  [39m
+      at failureErrorWithLog (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:1472:15)
+      at C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:755:50
+      at responseCallbacks.<computed> (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:622:9)
+      at handleIncomingPacket (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:677:12)
+      at Socket.readFromStdout (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:600:7)
+      at Socket.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m9:44:13 am[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 2 errors:
+C:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx:82:45: ERROR: The character ">" is not valid inside a JSX element
+C:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx:109:51: ERROR: The character ">" is not valid inside a JSX element[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx[39m:63:43
+[33m  
+  [33mThe character ">" is not valid inside a JSX element[33m
+  80 |                    <p className="mt-2 break-all text-xs text-slate-500">{tx.hash}</p>
+  81 |                    <p className="mt-2 text-xs text-slate-400">
+  82 |                      {shortAddress(tx.from)} -> {shortAddress(tx.to)}
+     |                                               ^
+  83 |                    </p>
+  84 |                  </div>
+  
+  [33mThe character ">" is not valid inside a JSX element[33m
+  107|                    <p className="mt-2 break-all text-xs text-slate-500">{transfer.hash}</p>
+  108|                    <p className="mt-2 text-xs text-slate-400">
+  109|                      {shortAddress(transfer.from)} -> {shortAddress(transfer.to)}
+     |                                                     ^
+  110|                    </p>
+  111|                  </div>
+  [39m
+      at failureErrorWithLog (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:1472:15)
+      at C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:755:50
+      at responseCallbacks.<computed> (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:622:9)
+      at handleIncomingPacket (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:677:12)
+      at Socket.readFromStdout (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:600:7)
+      at Socket.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+[2m9:44:15 am[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 2 errors:
+C:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx:82:45: ERROR: The character ">" is not valid inside a JSX element
+C:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx:109:51: ERROR: The character ">" is not valid inside a JSX element[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36mC:/Users/HP/OneDrive/Desktop/PROJECTS/CRYPTO/frontend/src/components/EtherscanDataPanel.tsx[39m:63:43
+[33m  
+  [33mThe character ">" is not valid inside a JSX element[33m
+  80 |                    <p className="mt-2 break-all text-xs text-slate-500">{tx.hash}</p>
+  81 |                    <p className="mt-2 text-xs text-slate-400">
+  82 |                      {shortAddress(tx.from)} -> {shortAddress(tx.to)}
+     |                                               ^
+  83 |                    </p>
+  84 |                  </div>
+  
+  [33mThe character ">" is not valid inside a JSX element[33m
+  107|                    <p className="mt-2 break-all text-xs text-slate-500">{transfer.hash}</p>
+  108|                    <p className="mt-2 text-xs text-slate-400">
+  109|                      {shortAddress(transfer.from)} -> {shortAddress(transfer.to)}
+     |                                                     ^
+  110|                    </p>
+  111|                  </div>
+  [39m
+      at failureErrorWithLog (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:1472:15)
+      at C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:755:50
+      at responseCallbacks.<computed> (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:622:9)
+      at handleIncomingPacket (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:677:12)
+      at Socket.readFromStdout (C:\Users\HP\OneDrive\Desktop\PROJECTS\CRYPTO\frontend\node_modules\esbuild\lib\main.js:600:7)
+      at Socket.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)

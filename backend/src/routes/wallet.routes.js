@@ -1,45 +1,22 @@
 import express from "express"
 import { ethers } from "ethers"
-import { erc20ABI, getProvider } from "../provider.js"
+import "../config/loadEnv.js"
 
 const router = express.Router()
 
 const ETH_USD_PRICE = 3200
-const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "IWQQM4TAW2CFJZW1J4NND2HZTZWPXZ1H4F"
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY
+const hasEtherscanApiKey =
+  Boolean(ETHERSCAN_API_KEY) && ETHERSCAN_API_KEY !== "YOUR_ETHERSCAN_API_KEY_HERE"
 const ETHERSCAN_BASE_URL = "https://api.etherscan.io/v2/api"
-const trackingTokens = [
-  { symbol: "WETH", address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", price: ETH_USD_PRICE },
-  { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", price: 1 },
-  { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", price: 1 },
-  { symbol: "DAI", address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", price: 1 },
-  { symbol: "LINK", address: "0x514910771AF9Ca656af840dff83E8264EcF986CA", price: 7.6 },
-  { symbol: "UNI", address: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984", price: 13.5 }
-]
-
-const formatTokenHolding = async (walletAddress, token, provider) => {
-  try {
-    const contract = new ethers.Contract(token.address, erc20ABI, provider)
-    const [symbol, decimals, rawBalance] = await Promise.all([
-      contract.symbol(),
-      contract.decimals(),
-      contract.balanceOf(walletAddress)
-    ])
-
-    const balance = Number(ethers.formatUnits(rawBalance, decimals))
-    const valueUSD = Number((balance * token.price).toFixed(2))
-
-    return {
-      symbol,
-      contractAddress: token.address,
-      balance,
-      valueUSD,
-      rawBalance: rawBalance.toString(),
-      decimals: Number(decimals)
-    }
-  } catch {
-    return null
-  }
-}
+const knownTokenPrices = new Map([
+  ["WETH", ETH_USD_PRICE],
+  ["USDC", 1],
+  ["USDT", 1],
+  ["DAI", 1],
+  ["LINK", 7.6],
+  ["UNI", 13.5]
+])
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 
@@ -54,12 +31,71 @@ const buildHeatmap = (total) => {
   )
 }
 
-const buildRecentTimeline = () => [
-  { time: "2h ago", severity: "High", description: "Unusual contract approval detected for a popular DeFi router." },
-  { time: "8h ago", severity: "Moderate", description: "Large outgoing transfer to an unknown contract cluster." },
-  { time: "1d ago", severity: "Low", description: "Routine stablecoin swap and liquidity movement." },
-  { time: "2d ago", severity: "Low", description: "Marketplace interaction with NFT trading protocol." }
-]
+const formatTxTime = (timeStamp) => {
+  const txDate = new Date(Number(timeStamp || 0) * 1000)
+  return Number.isNaN(txDate.getTime()) ? "Unknown time" : txDate.toLocaleString("en-US")
+}
+
+const buildRecentTimeline = (txList = [], checksumAddress) =>
+  txList.slice(0, 4).map((tx) => {
+    const outgoing = tx.from?.toLowerCase() === checksumAddress.toLowerCase()
+    const value = Number(ethers.formatEther(toBigInt(tx.value || 0)))
+    const failed = String(tx.isError) !== "0"
+
+    return {
+      time: formatTxTime(tx.timeStamp),
+      severity: failed ? "High" : value > 10 ? "Moderate" : "Low",
+      description: `${outgoing ? "Outgoing" : "Incoming"} transaction ${tx.hash || ""} for ${value.toFixed(4)} ETH`
+    }
+  })
+
+const buildApprovalHistory = (tokenHoldings = []) =>
+  tokenHoldings.slice(0, 4).map((token) => ({
+    name: token.symbol,
+    risk: token.valueUSD > 10000 ? "High" : token.valueUSD > 1000 ? "Moderate" : "Low",
+    detail: `Token exposure derived from Etherscan transfers for ${token.contractAddress}.`
+  }))
+
+const formatTransaction = (tx, checksumAddress) => {
+  const outgoing = tx.from?.toLowerCase() === checksumAddress.toLowerCase()
+
+  return {
+    hash: tx.hash,
+    blockNumber: tx.blockNumber,
+    timeStamp: tx.timeStamp,
+    date: formatTxTime(tx.timeStamp),
+    from: tx.from,
+    to: tx.to,
+    direction: outgoing ? "outgoing" : "incoming",
+    valueEth: Number(ethers.formatEther(toBigInt(tx.value || 0))),
+    gasUsed: tx.gasUsed,
+    gasPrice: tx.gasPrice,
+    isError: tx.isError,
+    methodId: tx.methodId,
+    functionName: tx.functionName
+  }
+}
+
+const formatTokenTransfer = (transfer, checksumAddress) => {
+  const outgoing = transfer.from?.toLowerCase() === checksumAddress.toLowerCase()
+  const decimals = Number(transfer.tokenDecimal || 18)
+
+  return {
+    hash: transfer.hash,
+    blockNumber: transfer.blockNumber,
+    timeStamp: transfer.timeStamp,
+    date: formatTxTime(transfer.timeStamp),
+    from: transfer.from,
+    to: transfer.to,
+    direction: outgoing ? "outgoing" : "incoming",
+    tokenName: transfer.tokenName,
+    tokenSymbol: transfer.tokenSymbol,
+    tokenDecimal: transfer.tokenDecimal,
+    contractAddress: transfer.contractAddress,
+    value: Number(ethers.formatUnits(toBigInt(transfer.value || 0), decimals)),
+    rawValue: transfer.value
+  }
+}
 
 const buildConnectionGraph = (transactionCount) => ({
   nodes: [
@@ -91,7 +127,42 @@ const toBigInt = (value) => {
   return 0n
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const requestEtherscan = async (url, label, attempt = 1) => {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Etherscan ${label} request failed: ${response.status}`)
+  }
+
+  const data = await response.json()
+  const resultText = String(data.result || "")
+  const isRateLimited = resultText.toLowerCase().includes("rate limit")
+
+  if (isRateLimited && attempt < 3) {
+    await sleep(1200 * attempt)
+    return requestEtherscan(url, label, attempt + 1)
+  }
+
+  const failedEtherscanResponse =
+    data.status === "0" &&
+    typeof data.message === "string" &&
+    !["No transactions found", "No records found"].includes(data.message)
+
+  if (failedEtherscanResponse) {
+    throw new Error(data.result || data.message || `Etherscan ${label} returned an error`)
+  }
+
+  return data
+}
+
 const fetchEtherscanData = async (address) => {
+  if (!hasEtherscanApiKey) {
+    const error = new Error("ETHERSCAN_API_KEY is not configured")
+    error.statusCode = 500
+    throw error
+  }
+
   const params = new URLSearchParams({
     chainid: "1",
     apikey: ETHERSCAN_API_KEY,
@@ -102,26 +173,28 @@ const fetchEtherscanData = async (address) => {
   })
 
   const endpoints = [
-    `${ETHERSCAN_BASE_URL}?module=account&action=balance&tag=latest&${params.toString()}`,
-    `${ETHERSCAN_BASE_URL}?module=account&action=txlist&${params.toString()}`,
-    `${ETHERSCAN_BASE_URL}?module=account&action=tokentx&${params.toString()}`
+    ["balance", `${ETHERSCAN_BASE_URL}?module=account&action=balance&tag=latest&${params.toString()}`],
+    ["transactions", `${ETHERSCAN_BASE_URL}?module=account&action=txlist&${params.toString()}`],
+    ["token transfers", `${ETHERSCAN_BASE_URL}?module=account&action=tokentx&${params.toString()}`],
+    ["contract code", `${ETHERSCAN_BASE_URL}?module=proxy&action=eth_getCode&tag=latest&${params.toString()}`]
   ]
 
-  const [balanceRes, txListRes, tokenTxRes] = await Promise.all(
-    endpoints.map(async (url) => {
-      const response = await fetch(url)
-      if (!response.ok) {
-        throw new Error(`Etherscan request failed: ${response.status}`)
-      }
-      return response.json()
-    })
-  )
+  const results = {}
 
-  return {
-    balance: balanceRes,
-    txList: txListRes,
-    tokenTx: tokenTxRes
+  for (const [index, [label, url]] of endpoints.entries()) {
+    if (index > 0) {
+      await sleep(450)
+    }
+
+    const data = await requestEtherscan(url, label)
+
+    if (label === "balance") results.balance = data
+    if (label === "transactions") results.txList = data
+    if (label === "token transfers") results.tokenTx = data
+    if (label === "contract code") results.code = data
   }
+
+  return results
 }
 
 const deriveWalletMetrics = (txList = [], checksumAddress) => {
@@ -154,48 +227,71 @@ const deriveWalletMetrics = (txList = [], checksumAddress) => {
   }
 }
 
+const deriveTokenHoldings = (tokenTransfers = [], checksumAddress) => {
+  const balancesByContract = new Map()
+  const normalizedAddress = checksumAddress.toLowerCase()
+
+  for (const transfer of tokenTransfers) {
+    const contractAddress = transfer.contractAddress
+    const symbol = transfer.tokenSymbol || "UNKNOWN"
+    const decimals = Number(transfer.tokenDecimal || 18)
+    const value = toBigInt(transfer.value || 0)
+
+    if (!contractAddress || value === 0n) continue
+
+    const key = contractAddress.toLowerCase()
+    const current = balancesByContract.get(key) || {
+      symbol,
+      contractAddress,
+      decimals,
+      rawBalance: 0n
+    }
+
+    if (transfer.to?.toLowerCase() === normalizedAddress) {
+      current.rawBalance += value
+    }
+
+    if (transfer.from?.toLowerCase() === normalizedAddress) {
+      current.rawBalance -= value
+    }
+
+    balancesByContract.set(key, current)
+  }
+
+  return Array.from(balancesByContract.values())
+    .filter((token) => token.rawBalance > 0n)
+    .map((token) => {
+      const balance = Number(ethers.formatUnits(token.rawBalance, token.decimals))
+      const price = knownTokenPrices.get(token.symbol) || 0
+
+      return {
+        symbol: token.symbol,
+        contractAddress: token.contractAddress,
+        balance,
+        valueUSD: Number((balance * price).toFixed(2)),
+        rawBalance: token.rawBalance.toString(),
+        decimals: token.decimals,
+        source: "etherscan-token-transfers"
+      }
+    })
+    .slice(0, 10)
+}
+
 const buildWalletResponse = async (address, network) => {
   try {
-    const provider = getProvider(network)
     const checksumAddress = ethers.getAddress(address)
+    const etherscanData = await fetchEtherscanData(checksumAddress)
 
-    let balance = 0n
-    let txCount = 0n
-    let code = "0x"
-
-    try {
-      ;[balance, txCount, code] = await Promise.all([
-        provider.getBalance(checksumAddress),
-        provider.getTransactionCount(checksumAddress),
-        provider.getCode(checksumAddress)
-      ])
-    } catch (rpcError) {
-      console.warn("RPC fallback failed, continuing with Etherscan data:", rpcError.message)
-    }
-
-    let etherscanData = null
-    try {
-      etherscanData = await fetchEtherscanData(checksumAddress)
-    } catch (error) {
-      console.warn("Etherscan lookup unavailable, using provider fallback:", error.message)
-    }
-
-    const etherscanMetrics = etherscanData
-      ? deriveWalletMetrics(Array.isArray(etherscanData.txList?.result) ? etherscanData.txList.result : [], checksumAddress)
-      : null
-
-    const transactionCount = etherscanMetrics?.transactionCount || Number(txCount)
-    const rawBalance = etherscanData?.balance?.result && etherscanData.balance.result !== "0"
-      ? BigInt(etherscanData.balance.result)
-      : balance
+    const txList = Array.isArray(etherscanData.txList?.result) ? etherscanData.txList.result : []
+    const etherscanMetrics = deriveWalletMetrics(txList, checksumAddress)
+    const tokenTransfers = Array.isArray(etherscanData.tokenTx?.result) ? etherscanData.tokenTx.result : []
+    const tokenHoldings = deriveTokenHoldings(tokenTransfers, checksumAddress)
+    const latestTransactions = txList.map((tx) => formatTransaction(tx, checksumAddress))
+    const latestTokenTransfers = tokenTransfers.map((transfer) => formatTokenTransfer(transfer, checksumAddress))
+    const transactionCount = etherscanMetrics?.transactionCount || 0
+    const rawBalance = etherscanData?.balance?.result ? BigInt(etherscanData.balance.result) : 0n
     const walletBalance = Number(ethers.formatEther(rawBalance))
-    let ensName = null
-    try {
-      ensName = await provider.lookupAddress(checksumAddress)
-    } catch {
-      ensName = null
-    }
-
+    const code = typeof etherscanData.code?.result === "string" ? etherscanData.code.result : "0x"
     const isContract = code !== "0x"
     const codeLower = code.toLowerCase()
     const contractInsights = isContract
@@ -215,12 +311,6 @@ const buildWalletResponse = async (address, network) => {
           codeSize: (code.length - 2) / 2
         }
       : null
-
-    const tokenHoldings = (
-      await Promise.all(
-        trackingTokens.map((token) => formatTokenHolding(checksumAddress, token, provider))
-      )
-    ).filter(Boolean)
 
     const ethValueUSD = Number((walletBalance * ETH_USD_PRICE).toFixed(2))
     const portfolioValueUSD = Number(
@@ -271,7 +361,7 @@ const buildWalletResponse = async (address, network) => {
 
     const result = {
       address: checksumAddress,
-      ensName: ensName || null,
+      ensName: null,
       chain: (network ? network[0].toUpperCase() + network.slice(1) : "Ethereum"),
       isContract,
       walletBalance,
@@ -281,7 +371,7 @@ const buildWalletResponse = async (address, network) => {
       walletAge,
       portfolioValueUSD,
       netWorthEstimation: Number((portfolioValueUSD * 1.05).toFixed(2)),
-      topHolderShare: `${clamp(txCount > 0 ? 12 + tokenHoldings.length * 4 : 8, 8, 38)}%`,
+      topHolderShare: `${clamp(transactionCount > 0 ? 12 + tokenHoldings.length * 4 : 8, 8, 38)}%`,
       riskScore,
       securityStatus,
       summary: [
@@ -289,13 +379,27 @@ const buildWalletResponse = async (address, network) => {
         `Balance: ${walletBalance.toFixed(4)} ETH`,
         `Activity: ${transactionCount} on-chain interactions`,
         etherscanMetrics?.lastSeen ? `Last seen: ${etherscanMetrics.lastSeen}` : null,
-        ensName ? `ENS: ${ensName}` : null,
         contractInsights?.isProxy ? "Proxy / upgradable" : null,
         contractInsights?.hasPrivilegedOwner ? "Privileged owner logic" : null
       ]
         .filter(Boolean)
-        .join(" • "),
+        .join(" | "),
       network,
+      dataSource: "etherscan",
+      etherscan: {
+        apiVersion: "v2",
+        chainId: "1",
+        explorerUrl: `https://etherscan.io/address/${checksumAddress}`,
+        balanceWei: rawBalance.toString(),
+        latestTransactions,
+        latestTokenTransfers,
+        contractCodeAvailable: code !== "0x",
+        resultWindow: {
+          page: 1,
+          offset: 25,
+          sort: "desc"
+        }
+      },
       transactionAnalytics: {
         totalTransactions: transactionCount,
         incomingRatio: Number((etherscanMetrics ? etherscanMetrics.incomingTransactions / Math.max(1, transactionCount) : 0.26).toFixed(2)),
@@ -306,7 +410,7 @@ const buildWalletResponse = async (address, network) => {
         gasSpending: Number(Math.max(0.0001, etherscanMetrics?.gasSpending || 0).toFixed(4)),
         failedTransactions: etherscanMetrics?.failedTransactions || 0,
         heatmap: buildHeatmap(transactionCount),
-        recentTimeline: buildRecentTimeline()
+        recentTimeline: buildRecentTimeline(txList, checksumAddress)
       },
       behavioralAnalysis: {
         activityConsistency:
@@ -336,30 +440,17 @@ const buildWalletResponse = async (address, network) => {
         activeApprovals: Math.max(1, tokenHoldings.length + 2),
         unlimitedApprovals: tokenHoldings.length > 2 ? 1 : 0,
         dangerousApprovals: contractInsights?.hasPrivilegedOwner ? 1 : 0,
-        approvalHistory: [
-          {
-            name: "OpenSea Wyvern Exchange",
-            risk: "Moderate",
-            detail: "Large contract approval observed for NFT marketplace interaction."
-          },
-          {
-            name: "Uniswap Router",
-            risk: "High",
-            detail: "Permission granted for token swaps with elevated transfer control."
-          }
-        ],
+        approvalHistory: buildApprovalHistory(tokenHoldings),
         approvalRiskMeter,
         fundsDrainRisk: riskScore >= 60 ? "HIGH" : riskScore >= 35 ? "MEDIUM" : "LOW"
       },
       contractInteractions: {
         contractsInteracted: Math.max(3, tokenHoldings.length + 2),
         interactionFrequency: transactionCount > 0 ? Math.min(98, transactionCount * 2) : 0,
-        defiProtocols: tokenHoldings.some((token) => token.symbol === "UNI")
-          ? ["Uniswap", "Aave", "Curve"]
-          : ["Uniswap", "Balancer"],
-        nftMarketplaces: tokenHoldings.some((token) => token.symbol === "WETH")
-          ? ["OpenSea", "Blur"]
-          : ["OpenSea"],
+        defiProtocols: tokenHoldings
+          .filter((token) => ["UNI", "AAVE", "CRV", "BAL"].includes(token.symbol))
+          .map((token) => token.symbol),
+        nftMarketplaces: [],
         unknownContracts: Math.min(6, Math.max(1, Math.floor(transactionCount / 20))),
         riskyContractWarnings: [
           contractInsights?.isProxy ? "Proxy contract behavior requires ongoing monitoring." : "No proxy-related warnings.",
@@ -439,7 +530,7 @@ const buildWalletResponse = async (address, network) => {
     return result
   } catch (err) {
     console.error(err)
-    throw new Error("Wallet analysis failed")
+    throw err
   }
 }
 
@@ -455,7 +546,10 @@ router.get("/wallet", async (req, res) => {
     return res.json(result)
   } catch (err) {
     console.error(err)
-    return res.status(500).json({ error: "Wallet analysis failed" })
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Wallet analysis failed",
+      source: "etherscan"
+    })
   }
 })
 
@@ -471,7 +565,10 @@ router.post("/wallet", async (req, res) => {
     return res.json(result)
   } catch (err) {
     console.error(err)
-    return res.status(500).json({ error: "Wallet analysis failed" })
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Wallet analysis failed",
+      source: "etherscan"
+    })
   }
 })
 
