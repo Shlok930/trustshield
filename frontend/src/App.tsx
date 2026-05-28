@@ -16,7 +16,11 @@ import SecurityInsights from "./components/SecurityInsights"
 import EtherscanDataPanel from "./components/EtherscanDataPanel"
 import Footer from "./components/Footer"
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "")
+const API_BASE_URL = (
+  import.meta.env.PROD
+    ? import.meta.env.VITE_DEPLOYED_BACKEND_URL || import.meta.env.VITE_API_BASE_URL || "/api"
+    : import.meta.env.VITE_API_BASE_URL || "/api"
+).replace(/\/$/, "")
 
 export default function App() {
   const [walletAddress, setWalletAddress] = useState("")
